@@ -1,91 +1,63 @@
 <?php
+
 require_once 'modules/admin/models/PluginCallback.php';
 require_once 'modules/billing/models/class.gateway.plugin.php';
 require_once 'modules/billing/models/Invoice.php';
 require_once 'plugins/gateways/uddoktapay/UddoktaPay.php';
 
-class PluginuddoktapayCallback extends PluginCallback
+class PluginUddoktaPayCallback extends PluginCallback
 {
-    function processCallback()
+    public function processCallback()
     {
-        if (isset($_REQUEST['invoice_id']) && !empty($_REQUEST['invoice_id'])) {
-            $cPlugin = new Plugin('', 'uddoktapay', $this->user);
-            $invoice_id = $_REQUEST['invoice_id'];
-            $apiKey = trim($cPlugin->GetPluginVariable("plugin_uddoktapay_API KEY"));
-            $apiBaseURL = trim($cPlugin->GetPluginVariable("plugin_uddoktapay_API URL"));
-            $uddoktaPay = new UddoktaPay($apiKey, $apiBaseURL);
-            try {
-                $response = $uddoktaPay->verifyPayment($invoice_id);
-            } catch (Exception $e) {
-                die("Verification Error: " . $e->getMessage());
-            }
+        $cPlugin = new Plugin('', 'uddoktapay', $this->user);
+        $apiKey = trim($cPlugin->GetPluginVariable("plugin_uddoktapay_API KEY"));
+        $apiBaseURL = trim($cPlugin->GetPluginVariable("plugin_uddoktapay_API URL"));
+        $uddoktaPay = new UddoktaPay($apiKey, $apiBaseURL);
 
-            $amount = trim($response['amount']);
-            $payment_method = trim($response['payment_method']);
-            $invoiceId = trim($response['metadata']['invoice_id']);
-            $currencyCode = $response['metadata']['currency'];
-            $price = $amount . " " . $currencyCode;
-
-            $cPlugin = new Plugin($invoiceId, 'uddoktapay', $this->user);
-            $cPlugin->setAmount($amount);
-            $cPlugin->setAction('charge');
-
-            if (trim($response['status']) === 'COMPLETED') {
-                //Create plug in class to interact with CE
-                if ($cPlugin->IsUnpaid() == 1) {
-                    $transaction = "$payment_method payment of $price Successful (Order ID: " . $invoiceId . ")";
-                    $cPlugin->PaymentAccepted($amount, $transaction);
-                    $returnURL = CE_Lib::getSoftwareURL() . "/index.php?fuse=billing&paid=1&controller=invoice&view=invoice&id=" . $invoiceId;
-                    header("Location: " . $returnURL);
-                    exit;
-                } else {
-                    return;
-                }
+        try {
+            if (isset($_REQUEST['invoice_id']) && !empty($_REQUEST['invoice_id'])) {
+                $response = $uddoktaPay->verifyPayment($_REQUEST['invoice_id']);
             } else {
-                $transaction = "$payment_method payment of $price Failed (Order ID: " . $invoiceId . ")";
-                $cPlugin->PaymentRejected($transaction);
-                $returnURL = CE_Lib::getSoftwareURL() . "/index.php?fuse=billing&cancel=1&controller=invoice&view=invoice&id=" . $invoiceId;
+                $response = $uddoktaPay->executePayment();
+            }
+        } catch (Exception $e) {
+            die("Verification Error: " . $e->getMessage());
+        }
+
+        $amount = trim($response['amount']);
+        $paymentMethod = trim(strtoupper($response['payment_method']));
+        $invoiceId = trim($response['metadata']['invoice_id']);
+        $currencyCode = $response['metadata']['currency'];
+        $exchangeRate = !empty($cPlugin->GetPluginVariable("plugin_uddoktapay_Exchange Rate")) ? $cPlugin->GetPluginVariable("plugin_uddoktapay_Exchange Rate") : 1;
+
+        if ($currencyCode !== 'BDT') {
+            $amount /= $exchangeRate;
+        }
+
+        $price = $amount . " " . $currencyCode;
+        $cPlugin = new Plugin($invoiceId, 'uddoktapay', $this->user);
+        $cPlugin->setAmount($amount);
+        $cPlugin->setAction('charge');
+
+        $status = trim($response['status']);
+
+        if ($status === 'COMPLETED') {
+            $transaction = "$paymentMethod payment of $price Successful (Order ID: " . $invoiceId . ")";
+            // Create plug in class to interact with CE
+            if ($cPlugin->IsUnpaid() == 1) {
+                $cPlugin->PaymentAccepted($amount, $transaction);
+                $returnURL = CE_Lib::getSoftwareURL() . "/index.php?fuse=billing&paid=1&controller=invoice&view=invoice&id=" . $invoiceId;
                 header("Location: " . $returnURL);
                 exit;
-            }
-            return;
-        } else {
-            $cPlugin = new Plugin('', 'uddoktapay', $this->user);
-            $apiKey = trim($cPlugin->GetPluginVariable("plugin_uddoktapay_API KEY"));
-            $apiBaseURL = trim($cPlugin->GetPluginVariable("plugin_uddoktapay_API URL"));
-            $uddoktaPay = new UddoktaPay($apiKey, $apiBaseURL);
-            try {
-                $response = $uddoktaPay->executePayment();
-            } catch (Exception $e) {
-                die("Verification Error: " . $e->getMessage());
-            }
-
-            $amount = trim($response['amount']);
-            $payment_method = trim(strtoupper($response['payment_method']));
-            $invoiceId = trim($response['metadata']['invoice_id']);
-            $currencyCode = $response['metadata']['currency'];
-            $price = $amount . " " . $currencyCode;
-
-            $cPlugin = new Plugin($invoiceId, 'uddoktapay', $this->user);
-            $cPlugin->setAmount($amount);
-            $cPlugin->setAction('charge');
-
-            if (trim($response['status']) === 'COMPLETED') {
-                //Create plug in class to interact with CE
-                if ($cPlugin->IsUnpaid() == 1) {
-                    $transaction = "$payment_method payment of $price Successful (Order ID: " . $invoiceId . ")";
-                    $cPlugin->PaymentAccepted($amount, $transaction);
-                    exit;
-                } else {
-                    return;
-                }
             } else {
-                $transaction = "$payment_method payment of $price Failed (Order ID: " . $invoiceId . ")";
-                $cPlugin->PaymentRejected($transaction);
-                exit;
+                return;
             }
-            return;
+        } else {
+            $transaction = "$paymentMethod payment of $price Failed (Order ID: " . $invoiceId . ")";
+            $cPlugin->PaymentRejected($transaction);
+            $returnURL = CE_Lib::getSoftwareURL() . "/index.php?fuse=billing&cancel=1&controller=invoice&view=invoice&id=" . $invoiceId;
+            header("Location: " . $returnURL);
+            exit;
         }
-        return;
     }
 }
