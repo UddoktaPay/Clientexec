@@ -38,6 +38,15 @@ class PluginUddoktaPay extends GatewayPlugin
 
     public function singlePayment($params)
     {
+        $apiKey = $params['plugin_uddoktapay_API KEY'];
+        $apiBaseURL = $params['plugin_uddoktapay_API URL'];
+        $uddoktaPay = new UddoktaPay($apiKey, $apiBaseURL);
+
+        $baseURL = rtrim(CE_Lib::getSoftwareURL(), '/') . '/';
+        $callbackURL = $baseURL . "plugins/gateways/uddoktapay/callback.php";
+        $cancelURL = $params['invoiceviewURLCancel'];
+
+
         $invoiceId = $params['invoiceNumber'];
         $amount = round($params["invoiceTotal"], 2);
         $firstname = $params['userFirstName'];
@@ -46,18 +55,9 @@ class PluginUddoktaPay extends GatewayPlugin
         $currencyCode = $params['userCurrency'];
         $exchangeRate = !empty($params['plugin_uddoktapay_Exchange Rate']) ? $params['plugin_uddoktapay_Exchange Rate'] : 1;
 
-
-        $baseURL = rtrim(CE_Lib::getSoftwareURL(), '/') . '/';
-        $callbackURL = $baseURL . "plugins/gateways/uddoktapay/callback.php";
-        $cancelURL = $params['invoiceviewURLCancel'];
-
         if ($currencyCode !== 'BDT') {
             $amount *= $exchangeRate;
         }
-
-        $apiKey = $params['plugin_uddoktapay_API KEY'];
-        $apiBaseURL = $params['plugin_uddoktapay_API URL'];
-        $uddoktaPay = new UddoktaPay($apiKey, $apiBaseURL);
 
         $requestData = [
             'full_name'    => "$firstname $lastname",
